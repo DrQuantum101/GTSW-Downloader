@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from requests.exceptions import ChunkedEncodingError
 import pdfkit
 
-DLMODE = 1 # 0 is Save to Disk / 1 is CSV Export
+DLMODE = 0 # 0 is Save to Disk / 1 is CSV Export
 
 # Load the cookies from the Netscape HTTP Cookie File
 def parseCookieFile(cookiefile):
@@ -176,7 +176,7 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
     # print("Story IDs:")
     # print(story_ids)
             
-    if DLMODE == 0:
+    if DLMODE == 1:
 
         # Construct the CSV file path
         script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -249,7 +249,7 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
             # Check if the PDF file already exists in the temporary directory
 
             # Create the download folder in the temporary directory
-            temp_dir = os.path.join(os.environ["TEMP"], "GTSWorldDL")
+            temp_dir = os.path.join(os.environ["TEMP"], "GTSWorldDL", f"Mode - {action}")
             if not os.path.exists(temp_dir):
                 os.makedirs(temp_dir)
 
@@ -276,14 +276,14 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
                 new_file_size = os.path.getsize(temp_output_filepath)
 
                 # Set a threshold for considering the file sizes as significantly different
-                threshold_size_difference = 1 * 1024  # You can adjust this threshold based on your requirements
+                threshold_size_difference = 5 * 1024  # You can adjust this threshold based on your requirements
 
                 # Compare file sizes and decide whether to overwrite or not
                 if new_file_size + threshold_size_difference < existing_file_size:
                     # print(f"The file '{filename}' already exists, and the new file is significantly smaller. It will not be overwritten.")
                     status = "Warning: Skipped!"
                     with open("log.txt", "a") as log_file:
-                        log_file.write(f"Skipped: {filename} - {datetime.datetime.now()}\n")
+                        log_file.write(f"Skipped: {filename} - {datetime.datetime.now()} - Mode - {action}\n")
                     # Delete the new file in the temp directory
                     os.remove(temp_output_filepath)
                 else:
@@ -304,6 +304,46 @@ cookies = parseCookieFile("cookies.txt")  # replace the filename
 headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
 }
+
+if len(sys.argv) == 1:
+    # If no additional arguments are provided, ask for the download directory first
+    downloads_dir = input("Enter the download directory: ")
+
+    # Ask for the mode (individual or file)
+    while True:
+        mode_input = input("Enter mode (individual or file): ").lower()
+        if mode_input in ["individual", "file"]:
+            mode = mode_input
+            break
+        else:
+            print("Invalid mode. Please enter 'individual' or 'file'.")
+
+    story_ids = []
+
+    if mode == "file":
+        storylist = input("Enter the path to the file containing Story IDs: ")
+
+        # open the file containing the links
+        with open(storylist.strip('"'), 'r') as file:
+            # loop through each line in the file
+            for line in file:
+                # use regular expressions to extract the number after uid=
+                match = re.search('sid=(\d+)', line)
+                # if a match is found, add the number to the array
+                if match:
+                    story_ids.append(int(match.group(1)))
+    else:
+        counter = 1
+        while True:
+            print(f"Enter Story ID #{counter} (press Enter to finish): ", end="")
+            user_input = input()
+            if not user_input:
+                print("Submitting Story List")
+                break
+            counter += 1
+            story_ids.append(user_input)
+
+    downloadStories(action="list", storylist=story_ids, downloads_dir=downloads_dir)
 
 if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
 
