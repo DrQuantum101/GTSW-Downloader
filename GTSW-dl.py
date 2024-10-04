@@ -4,6 +4,7 @@ import sys
 import time
 import re
 import csv
+import datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -277,6 +278,8 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
                 if new_file_size + threshold_size_difference < existing_file_size:
                     # print(f"The file '{filename}' already exists, and the new file is significantly smaller. It will not be overwritten.")
                     status = "Warning: Skipped!"
+                    with open("log.txt", "a") as log_file:
+                        log_file.write(f"Skipped: {filename} - {datetime.datetime.now()}\n")
                     # Delete the new file in the temp directory
                     os.remove(temp_output_filepath)
                 else:
