@@ -1,12 +1,13 @@
-import sys
-import re
 import os
 import shutil
+import sys
+import time
+import re
+
 import requests
 from bs4 import BeautifulSoup
-import pdfkit
 from requests.exceptions import ChunkedEncodingError
-import time
+import pdfkit
 
 # Load the cookies from the Netscape HTTP Cookie File
 def parseCookieFile(cookiefile):
@@ -25,12 +26,6 @@ def parseCookieFile(cookiefile):
 
     return cookies
 
-path_wkhtmltopdf = r'.\wkhtmltopdf.exe'
-config = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
-}
-
 # Define a function to make the request with retries
 def make_request_with_retries(url, cookies, max_retries=3):
     for attempt in range(max_retries):
@@ -46,74 +41,115 @@ def make_request_with_retries(url, cookies, max_retries=3):
     print("Max retries reached, skipping the request.")
     return None
 
-cookies = parseCookieFile("cookies.txt")  # replace the filename
+def uidToAuth(uid):
+    # Construct the URL with the provided uid
+    url = f"https://www.[REDACTED].net/viewuser.php?action=storiesby&uid={uid}"
 
+    # Send an HTTP request to the URL
+    response = requests.get(url)
 
-# Initialize the arrays to store the stories
+    # Check if the request was successful (status code 200)
+    if response.status_code == 200:
+        # Parse the HTML content of the response using BeautifulSoup
+        soup = BeautifulSoup(response.content, "html.parser")
 
+        # Find the span with class "label" containing "Penname: "
+        penname_span = soup.find("span", {"class": "label"}, string="Penname: ")
 
-if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
+        # Check if the penname_span is found
+        if penname_span:
+            # Extract the following text as the author name
+            next_text = penname_span.find_next_sibling(string=True)
+            # Extract the author name and remove unnecessary characters
+            author_name = next_text.strip().split("[")[0].strip()
+            return author_name
+        else:
+            return None  # Penname span not found
+    else:
+        return None  # Request was not successful
+    
+def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
 
+    # Check for required arguments
+    if action is None:
+        raise ValueError("The 'action' argument is required.")
+    if action == "list" and storylist is None:
+        raise ValueError("For 'list' action, the 'storylist' argument is required.")
+    if action != "list" and uid is None:
+        raise ValueError("For actions other than 'list', the 'uid' argument is required.")
+    if downloads_dir == None:
+        raise ValueError("Download directory is always required.")
+    
+    # Initialize the arrays to store the stories
     story_titles = []
     story_authors = []
     story_links = []
     story_ids = []
 
-    # Create the Downloads/Favourite Stories folder in the temporary directory
-    temp_dir = os.path.join(os.environ["TEMP"], "Favourite Stories")
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
+    if action != "file":
 
-    # Loop through the pages and extract the stories
-    current_num = 0
+        # Loop through the pages and extract the stories
+        current_num = 0
 
-    # Set the URL template of the restricted webpage with a placeholder for the offset parameter
-    base_url = "https://www.[REDACTED].net/user.php?action=favst&uid=130611&offset="
+        # Set the URL template of the restricted webpage with a placeholder for the offset parameter
+        base_url = f"https://www.[REDACTED].net/viewuser.php?action={action}&uid={uid}&offset="
+        # print(base_url)
 
-    while True:
+        while True:
 
-        # Set the URL of the current page
-        url = base_url + str(current_num * 20)
+            # Set the URL of the current page
+            url = base_url + str(current_num * 20)
 
-        # Send a GET request to the current page with the cookies
-        response = make_request_with_retries(url, cookies)
+            # Send a GET request to the current page with the cookies
+            response = make_request_with_retries(url, cookies)
 
-        # Check if the access was successful by searching for the error message
-        if "You are not authorized to access that function." in response.text:
-            print(f"Access to page {current_num + 1} was unsuccessful.")
-            break
+            # Check if the access was successful by searching for the error message
+            if "You are not authorized to access that function." in response.text:
+                print(f"Access to page {current_num + 1} on user {uid}'s {action} page was unsuccessful.")
+                break
 
-        # Parse the HTML content of the response using BeautifulSoup
-        soup = BeautifulSoup(response.content, "html.parser")
+            # Parse the HTML content of the response using BeautifulSoup
+            soup = BeautifulSoup(response.content, "html.parser")
 
-        # Find all the story links on the page and add them to the story_links array
-        for div in soup.find_all("div", class_="title"):
-            # Extract the title, author, and link of the story
-            story_title = div.find("span", class_="story-title").text.strip()
-            story_author = div.find(
-                "span", class_="story-title"
-            ).next_sibling.next_sibling.text.strip()
-            story_link = div.find("a")["href"]
-            # Extract only the integer part of the story link
-            story_id = int(story_link.split("=")[-1])
+            # Find all the story links on the page and add them to the story_links array
+            for div in soup.find_all("div", class_="title"):
+                # Extract the title, author, and link of the story
+                story_title = div.find("span", class_="story-title").text.strip()
+                story_author = div.find(
+                    "span", class_="story-title"
+                ).next_sibling.next_sibling.text.strip()
+                story_link = div.find("a")["href"]
+                # Extract only the integer part of the story link
+                story_id = int(story_link.split("=")[-1])
 
-            # Append the title, author, and link to their respective arrays
-            story_titles.append(story_title)
-            story_authors.append(story_author)
-            story_links.append(story_link)
-            story_ids.append(story_id)
+                # Append the title, author, and link to their respective arrays
+                story_titles.append(story_title)
+                story_authors.append(story_author)
+                story_links.append(story_link)
+                story_ids.append(story_id)
 
-        # Check if there are more pages by looking for the "next" button
-        next_button = soup.find("a", string="[Next]")
-        if not next_button:
-            break
+            # Check if there are more pages by looking for the "next" button
+            next_button = soup.find("a", string="[Next]")
+            if not next_button:
+                break
 
-        # Increment the page number to go to the next page
-        current_num += 1
+            # Increment the page number to go to the next page
+            current_num += 1
+
+    if action == "list":
+
+        story_ids = storylist      
 
     # Print the number of stories found
+    match action:
+        case "favst":
+            print(f"\nUser {uidToAuth(uid)} has {len(story_titles)} favourite stories.")
 
-    print(f"\nFound {len(story_titles)} Stories.")
+        case "storiesby":
+            print(f"\nAuthor {uidToAuth(uid)} has made {len(story_ids)} stories.")
+
+        case "list":
+            print(f"\nThere are {len(story_ids)} stories in this list.")
 
     # print(f"Found {len(story_authors)} authors.")
     # print(f"Found {len(story_links)} links.")
@@ -135,13 +171,6 @@ if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
     # print("Story IDs:")
     # print(story_ids)
 
-    # Loop through the story links and download the PDFs
-    downloads_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "Downloads", "Favourite Stories"
-    )
-    if not os.path.exists(downloads_dir):
-        os.makedirs(downloads_dir)
-
     # Loop through each story ID and save the printable version as a PDF
     for i, story_id in enumerate(story_ids):
         # Construct the URL of the printable version of the story
@@ -161,15 +190,30 @@ if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
         story_title = page_title_parts[0]
         story_author = page_title_parts[1]
 
-        # Replace any characters that are not allowed in filenames with underscores
-        valid_chars = (
-            "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        )
+        # Define illegal characters
+        illegal_chars = "#%&{}\\<>*?/$!'\"@+`|=:"
+
+        # Add non-ASCII characters to the list of illegal characters
+        non_ascii_chars = "".join(chr(i) for i in range(128, 256))
+        illegal_chars += non_ascii_chars
+
         filename = "".join(
-            c if c in valid_chars else "_"
+            c if c not in illegal_chars else ""
             for c in f"{story_title} by {story_author}.pdf"
         )
+
+        filename = filename.replace(",", " and") if "," in f"{story_author}" else filename
+
+        # Remove double spaces
+        filename = " ".join(filename.split())
+
+
         # Check if the PDF file already exists in the temporary directory
+
+        # Create the download folder in the temporary directory
+        temp_dir = os.path.join(os.environ["TEMP"], "GTSWorldDL")
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
 
         # Set the output file path to the Downloads folder with the story ID as the filename
         temp_output_filepath = os.path.join(temp_dir, filename)
@@ -181,34 +225,80 @@ if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
         # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
         pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
 
-        # Move the downloaded PDF file to the "Favourite Stories" folder in the "Downloads" folder
+        # The final destination path
         downloads_filepath = os.path.join(downloads_dir, filename)
-        shutil.move(temp_output_filepath, downloads_filepath)
+
+        # Check if the file already exists in the destination directory
+        status = 0
+        if os.path.exists(downloads_filepath):
+            # Get the size of the existing file
+            existing_file_size = os.path.getsize(downloads_filepath)
+            
+            # Get the size of the file to be moved
+            new_file_size = os.path.getsize(temp_output_filepath)
+
+            # Set a threshold for considering the file sizes as significantly different
+            threshold_size_difference = 5 * 1024  # You can adjust this threshold based on your requirements
+
+            # Compare file sizes and decide whether to overwrite or not
+            if new_file_size + threshold_size_difference < existing_file_size:
+                # print(f"The file '{filename}' already exists, and the new file is significantly smaller. It will not be overwritten.")
+                status = "Warning: Skipped!"
+                # Delete the new file in the temp directory
+                os.remove(temp_output_filepath)
+            else:
+                # Move the downloaded PDF file to the appropriate folder in the "Downloads" folder
+                status = "Overwritten"
+                shutil.move(temp_output_filepath, downloads_filepath)
+        else:
+            # Move the downloaded PDF file to the appropriate folder in the "Downloads" folder
+            status = "New"
+            shutil.move(temp_output_filepath, downloads_filepath)
 
         # Print a message indicating that the file has been saved
-        print(f"Saved {filename} ({i+1}/{len(story_ids)})")
+        print(f"Processed {filename} ({i+1}/{len(story_ids)}) <{status}>")
+    
+path_wkhtmltopdf = r'.\wkhtmltopdf.exe'
+config = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
+cookies = parseCookieFile("cookies.txt")  # replace the filename
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+}
 
+if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
 
-elif len(sys.argv) > 1 and sys.argv[1] == "--favAuth":
+    if len(sys.argv) > 2:
+        user = sys.argv[2]
+    else:
+        user = 130611
+    
+    # Loop through the story links and download the PDFs
+    downloads_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "Downloads",
+        "Users Favourite Stories",
+        f"{uidToAuth(user)}(s) Favourite Stories",
+    )
+    if not os.path.exists(downloads_dir):
+        os.makedirs(downloads_dir)
+
+    downloadStories(action="favst", uid=user, downloads_dir=downloads_dir)
+
+if len(sys.argv) > 1 and sys.argv[1] == "--favAuth":
 
     author_links = []
     author_ids = []
-
-    # Create the Downloads/Favourite Stories folder in the temporary directory
-    temp_dir = os.path.join(os.environ["TEMP"], "Favourite Authors Stories")
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
 
     # Loop through the pages and extract the stories
     current_auth_page = 0
 
     # Set the URL template of the restricted webpage with a placeholder for the offset parameter
-    base_auth_url = (
-        "https://www.[REDACTED].net/viewuser.php?action=favau&uid=130611&offset="
-    )
-    base_url = (
-        "https://www.[REDACTED].net/viewuser.php?action=storiesby&uid={}&offset={}"
-    )
+    if len(sys.argv) > 2:
+        user = {sys.argv[2]}
+    else:
+        user = 130611
+
+    base_auth_url = f"https://www.[REDACTED].net/viewuser.php?action=favau&uid={user}&offset="
 
     while True:
 
@@ -229,13 +319,16 @@ elif len(sys.argv) > 1 and sys.argv[1] == "--favAuth":
         # Find the div with id "profile"
         profile_div = soup.find("div", {"id": "profile"})
 
+        # Iterate through all anchor tags within the div with id "profile"
         for authors in profile_div.find_all("a"):
-            if (
-                "viewuser.php?uid=" in authors["href"]
-                and "contact.php" not in authors["href"]
-            ):
+            if "viewuser.php?uid=" in authors["href"] and "contact.php" not in authors["href"]:
+                # Extract the author name from the anchor tag text
+                author_name = authors.text.strip()
+
+                # Append the author link to the author_links array
                 author_links.append(authors["href"])
 
+        # Extract author IDs from the author_links array
         author_ids = [link.split("uid=")[-1] for link in author_links]
 
         # Check if there are more pages by looking for the "next" button
@@ -246,335 +339,139 @@ elif len(sys.argv) > 1 and sys.argv[1] == "--favAuth":
         # Increment the page number to go to the next page
         current_auth_page += 1
 
-    
+        
     author_counter = 1
+
+    print(f"\nUser {uidToAuth(user)} has {len(author_ids)} favourite authors.")
+
     for author_id in author_ids:
-
-        current_num = 0
-        story_titles = []
-        story_authors = []
-        story_links = []
-        story_ids = []
-
-        while True:
-
-            # Set the URL of the current page
-            url = base_url.format(author_id, current_num * 20)
-
-            # Send a GET request to the current page with the cookies
-            response = make_request_with_retries(url, cookies)
-
-            # Check if the access was successful by searching for the error message
-            if "You are not authorized to access that function." in response.text:
-                print(
-                    f"Access to page {current_num + 1} of author {author_id} was unsuccessful."
-                )
-                break
-
-            # Parse the HTML content of the response using BeautifulSoup
-            soup = BeautifulSoup(response.content, "html.parser")
-
-            # Find all the story links on the page and add them to the story_links array
-            for div in soup.find_all("div", class_="title"):
-                # Extract the title, author, and link of the story
-                story_title = div.find("span", class_="story-title").text.strip()
-                story_author = div.find(
-                    "span", class_="story-title"
-                ).next_sibling.next_sibling.text.strip()
-                story_link = div.find("a")["href"]
-                # Extract only the integer part of the story link
-                story_id = int(story_link.split("=")[-1])
-
-                # Append the title, author, and link to their respective arrays
-                story_titles.append(story_title)
-                story_authors.append(story_author)
-                story_links.append(story_link)
-                story_ids.append(story_id)
-
-            # Check if there are more pages by looking for the "next" button
-            next_button = soup.find("a", string="[Next]")
-            if not next_button:
-                break
-
-            # Increment the page number to go to the next page
-            current_num += 1
-            # Loop through each story ID and save the printable version as a PDF
-
-        print(f"\nAuthor {story_authors[0]} has {len(story_ids)} stories")
 
         # Loop through the story links and download the PDFs
         downloads_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "Downloads",
-            "Favourite Authors Stories",
-            "".join(story_authors[0]),
+            "Stories by Users Favourite Authors",
+            f"{uidToAuth(user)}(s) Favourite Authors",
+            f"Stories by {uidToAuth(author_id)}",
         )
         if not os.path.exists(downloads_dir):
             os.makedirs(downloads_dir)
 
-        for i, story_id in enumerate(story_ids):
-            # Construct the URL of the printable version of the story
-            printable_url = f"https://www.[REDACTED].net/viewstory.php?action=printable&sid={story_id}&textsize=0&chapter=all"
+        downloadStories(action="storiesby", uid=author_id, downloads_dir=downloads_dir)
 
-            # Send a GET request to the printable URL with the cookies
-            response = make_request_with_retries(printable_url, cookies)
-            if response is None:
-                continue 
-
-            # Parse the HTML content of the response using BeautifulSoup
-            soup = BeautifulSoup(response.content, "html.parser")
-
-            # Extract the story title and author from the page title
-            page_title = soup.find("title").text.strip()
-            page_title_parts = page_title.split(" by ")
-            story_title = page_title_parts[0]
-            story_author = page_title_parts[1]
-
-            # Replace any characters that are not allowed in filenames with underscores
-            valid_chars = (
-                "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            )
-            filename = "".join(
-                c if c in valid_chars else "_"
-                for c in f"{story_title} by {story_author}.pdf"
-            )
-            # Check if the PDF file already exists in the temporary directory
-
-            # Set the output file path to the Downloads folder with the story ID as the filename
-            temp_output_filepath = os.path.join(temp_dir, filename)
-
-            # Check if the output file already exists and delete it if it does
-            if os.path.exists(temp_output_filepath):
-                os.remove(temp_output_filepath)
-
-            # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
-            pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
-
-            # Move the downloaded PDF file to the "Favourite Stories" folder in the "Downloads" folder
-            downloads_filepath = os.path.join(downloads_dir, filename)
-            shutil.move(temp_output_filepath, downloads_filepath)
-
-            # Print a message indicating that the file has been saved
-            print(f"Saved {filename} ({i+1}/{len(story_ids)})")
-
-        print(f"\nStories from Author {story_authors[0]} has been downloaded ({author_counter}/{len(author_ids)}) ")
+        print(f"Stories from Author {uidToAuth(author_id)} has been processed ({author_counter}/{len(author_ids)})\n")
         author_counter += 1
 
-elif len(sys.argv) > 1 and sys.argv[1] == "--archiveAuth":
+if len(sys.argv) > 1 and sys.argv[1] == "--archiveAuth":
 
+    mode = 0
     author_ids = []
 
-    # Create the Downloads/Favourite Stories folder in the temporary directory
-    temp_dir = os.path.join(os.environ["TEMP"], "Archives\Authors Stories")
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
+    if len(sys.argv) > 2 and sys.argv[2] == "--file":
+        mode = "file"
+        if len(sys.argv) > 3:
+            authorslist = sys.argv[3]
+        else:
+            authorslist = input("Enter the path to the file containing User IDs: ")
 
-    # Set the URL template of the restricted webpage with a placeholder for the offset parameter
+        # open the file containing the links
+        with open(authorslist.strip('"'), 'r') as file:
+            # loop through each line in the file
+            for line in file:
+                # use regular expressions to extract the number after uid=
+                match = re.search('uid=(\d+)', line)
+                # if a match is found, add the number to the array
+                if match:
+                    author_ids.append(int(match.group(1)))
 
-    base_url = (
-        "https://www.[REDACTED].net/viewuser.php?action=storiesby&uid={}&offset={}"
-    )
+    else:
+        mode = "individual"
 
-    # open the file containing the links
-    with open('Authors.txt', 'r') as file:
-        # loop through each line in the file
-        for line in file:
-            # use regular expressions to extract the number after uid=
-            match = re.search('uid=(\d+)', line)
-            # if a match is found, add the number to the array
-            if match:
-                author_ids.append(int(match.group(1)))
+        if len(sys.argv) > 3:
+            # If additional arguments are provided, append them starting from argv[2]
+            author_ids.extend(sys.argv[2:])
+        else:
+            # If no additional arguments are provided, ask the user to input User IDs
+            counter = 1
+            while True:
+                print(f"Enter User ID #{counter}: ", end="")
+                user_input = input()
+                if not user_input:
+                    print("Submitting Author List")
+                    break
+                counter += 1
+                author_ids.append(user_input)
+
+    print(f"\nThere are {len(author_ids)} authors in this list.")
 
     author_counter = 1
 
     for author_id in author_ids:
 
-        
-        current_num = 0
-        story_titles = []
-        story_authors = []
-        story_links = []
-        story_ids = []
-
-        while True:
-
-            # Set the URL of the current page
-            url = base_url.format(author_id, current_num * 20)
-
-            # Send a GET request to the current page with the cookies
-            response = make_request_with_retries(url, cookies)
-
-            # Check if the access was successful by searching for the error message
-            if "You are not authorized to access that function." in response.text:
-                print(
-                    f"Access to page {current_num + 1} of author {author_id} was unsuccessful."
-                )
-                break
-
-            # Parse the HTML content of the response using BeautifulSoup
-            soup = BeautifulSoup(response.content, "html.parser")
-
-            # Find all the story links on the page and add them to the story_links array
-            for div in soup.find_all("div", class_="title"):
-                # Extract the title, author, and link of the story
-                story_title = div.find("span", class_="story-title").text.strip()
-                story_author = div.find(
-                    "span", class_="story-title"
-                ).next_sibling.next_sibling.text.strip()
-                story_link = div.find("a")["href"]
-                # Extract only the integer part of the story link
-                story_id = int(story_link.split("=")[-1])
-
-                # Append the title, author, and link to their respective arrays
-                story_titles.append(story_title)
-                story_authors.append(story_author)
-                story_links.append(story_link)
-                story_ids.append(story_id)
-
-            # Check if there are more pages by looking for the "next" button
-            next_button = soup.find("a", string="[Next]")
-            if not next_button:
-                break
-
-            # Increment the page number to go to the next page
-            current_num += 1
-            # Loop through each story ID and save the printable version as a PDF
-
-        print(f"\nAuthor {story_authors[0]} has {len(story_ids)} stories")
-
         # Loop through the story links and download the PDFs
         downloads_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "Downloads",
-            "Archives\Authors Stories",
-            "".join(story_authors[0]),
+            "Archives",
+            "Stories by Authors",
+            f"Stories by {uidToAuth(author_id)}",
         )
         if not os.path.exists(downloads_dir):
             os.makedirs(downloads_dir)
 
-        for i, story_id in enumerate(story_ids):
-            # Construct the URL of the printable version of the story
-            printable_url = f"https://www.[REDACTED].net/viewstory.php?action=printable&sid={story_id}&textsize=0&chapter=all"
+        downloadStories(action="storiesby", uid=author_id, downloads_dir=downloads_dir)
 
-            # Send a GET request to the printable URL with the cookies
-            response = make_request_with_retries(printable_url, cookies)
-            if response is None:
-                continue 
-
-            # Parse the HTML content of the response using BeautifulSoup
-            soup = BeautifulSoup(response.content, "html.parser")
-
-            # Extract the story title and author from the page title
-            page_title = soup.find("title").text.strip()
-            page_title_parts = page_title.split(" by ")
-            story_title = page_title_parts[0]
-            story_author = page_title_parts[1]
-
-            # Replace any characters that are not allowed in filenames with underscores
-            valid_chars = (
-                "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            )
-            filename = "".join(
-                c if c in valid_chars else "_"
-                for c in f"{story_title} by {story_author}.pdf"
-            )
-            # Check if the PDF file already exists in the temporary directory
-
-            # Set the output file path to the Downloads folder with the story ID as the filename
-            temp_output_filepath = os.path.join(temp_dir, filename)
-
-            # Check if the output file already exists and delete it if it does
-            if os.path.exists(temp_output_filepath):
-                os.remove(temp_output_filepath)
-
-            # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
-            pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
-
-            # Move the downloaded PDF file to the "Favourite Stories" folder in the "Downloads" folder
-            downloads_filepath = os.path.join(downloads_dir, filename)
-            shutil.move(temp_output_filepath, downloads_filepath)
-
-            # Print a message indicating that the file has been saved
-            print(f"Saved {filename} ({i+1}/{len(story_ids)})")
-        
-        print(f"\nStories from Author {story_authors[0]} has been downloaded ({author_counter}/{len(author_ids)}) ")
+        print(f"Stories from Author {uidToAuth(author_id)} has been processed ({author_counter}/{len(author_ids)})\n")
         author_counter += 1
 
-elif len(sys.argv) > 1 and sys.argv[1] == "--archiveStories":
+if len(sys.argv) > 1 and sys.argv[1] == "--archiveStories":
 
-    story_titles = []
-    story_authors = []
+    mode = 0
     story_ids = []
 
-    # Create the Downloads/Favourite Stories folder in the temporary directory
-    temp_dir = os.path.join(os.environ["TEMP"], "Archives\Individual Stories")
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
+    if len(sys.argv) > 2 and sys.argv[2] == "--file":
+        mode = "file"
+        if len(sys.argv) > 3:
+            storylist = sys.argv[3]
+        else:
+            storylist = input("Enter the path to the file containing Story IDs: ")
 
-    # open the file containing the links
-    with open('Stories.txt', 'r') as file:
-        # loop through each line in the file
-        for line in file:
-            # use regular expressions to extract the number after uid=
-            match = re.search('sid=(\d+)', line)
-            # if a match is found, add the number to the array
-            if match:
-                story_ids.append(int(match.group(1)))
-    
+        # open the file containing the links
+        with open(storylist.strip('"'), 'r') as file:
+            # loop through each line in the file
+            for line in file:
+                # use regular expressions to extract the number after uid=
+                match = re.search('sid=(\d+)', line)
+                # if a match is found, add the number to the array
+                if match:
+                    story_ids.append(int(match.group(1)))
 
-    # Print the number of stories found
+    else:
+        mode = "individual"
 
-    print(f"\nFound {len(story_ids)} Stories.")
+        if len(sys.argv) > 3:
+            # If additional arguments are provided, append them starting from argv[2]
+            story_ids.extend(sys.argv[2:])
+        else:
+            # If no additional arguments are provided, ask the user to input User IDs
+            counter = 1
+            while True:
+                print(f"Enter Story ID #{counter}: ", end="")
+                user_input = input()
+                if not user_input:
+                    print("Submitting Story List")
+                    break
+                counter += 1
+                story_ids.append(user_input)
 
     # Loop through the story links and download the PDFs
     downloads_dir = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "Downloads", "Archives\Individual Stories"
+        os.path.dirname(os.path.abspath(__file__)),
+        "Downloads",
+        "Archives",
+        "Select Assorted Stories",
     )
     if not os.path.exists(downloads_dir):
-        os.makedirs(downloads_dir)
+        os.makedirs(downloads_dir) 
 
-    # Loop through each story ID and save the printable version as a PDF
-    for i, story_id in enumerate(story_ids):
-        # Construct the URL of the printable version of the story
-        printable_url = f"https://www.[REDACTED].net/viewstory.php?action=printable&sid={story_id}&textsize=0&chapter=all"
-
-        # Send a GET request to the printable URL with the cookies
-        response = make_request_with_retries(printable_url, cookies)
-        if response is None:
-            continue 
-
-        # Parse the HTML content of the response using BeautifulSoup
-        soup = BeautifulSoup(response.content, "html.parser")
-
-        # Extract the story title and author from the page title
-        page_title = soup.find("title").text.strip()
-        page_title_parts = page_title.split(" by ")
-        story_title = page_title_parts[0]
-        story_author = page_title_parts[1]
-
-        # Replace any characters that are not allowed in filenames with underscores
-        valid_chars = (
-            "-_.() abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        )
-        filename = "".join(
-            c if c in valid_chars else "_"
-            for c in f"{story_title} by {story_author}.pdf"
-        )
-        # Check if the PDF file already exists in the temporary directory
-
-        # Set the output file path to the Downloads folder with the story ID as the filename
-        temp_output_filepath = os.path.join(temp_dir, filename)
-
-        # Check if the output file already exists and delete it if it does
-        if os.path.exists(temp_output_filepath):
-            os.remove(temp_output_filepath)
-
-        # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
-        pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
-
-        # Move the downloaded PDF file to the "Favourite Stories" folder in the "Downloads" folder
-        downloads_filepath = os.path.join(downloads_dir, filename)
-        shutil.move(temp_output_filepath, downloads_filepath)
-
-        # Print a message indicating that the file has been saved
-        print(f"Saved {filename} ({i+1}/{len(story_ids)})")
+    downloadStories(action="list", storylist=story_ids, downloads_dir=downloads_dir)
