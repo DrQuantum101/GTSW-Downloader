@@ -3,11 +3,14 @@ import shutil
 import sys
 import time
 import re
+import csv
 
 import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import ChunkedEncodingError
 import pdfkit
+
+DLMODE = 1 # 0 is Save to Disk / 1 is CSV Export
 
 # Load the cookies from the Netscape HTTP Cookie File
 def parseCookieFile(cookiefile):
@@ -170,93 +173,123 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
     # # Print the list of story ids
     # print("Story IDs:")
     # print(story_ids)
-
-    # Loop through each story ID and save the printable version as a PDF
-    for i, story_id in enumerate(story_ids):
-        # Construct the URL of the printable version of the story
-        printable_url = f"https://www.[REDACTED].net/viewstory.php?action=printable&sid={story_id}&textsize=0&chapter=all"
-
-        # Send a GET request to the printable URL with the cookies
-        response = make_request_with_retries(printable_url, cookies)
-        if response is None:
-            continue 
-
-        # Parse the HTML content of the response using BeautifulSoup
-        soup = BeautifulSoup(response.content, "html.parser")
-
-        # Extract the story title and author from the page title
-        page_title = soup.find("title").text.strip()
-        page_title_parts = page_title.split(" by ")
-        story_title = page_title_parts[0]
-        story_author = page_title_parts[1]
-
-        # Define illegal characters
-        illegal_chars = "#%&{}\\<>*?/$!'\"@+`|=:"
-
-        # Add non-ASCII characters to the list of illegal characters
-        non_ascii_chars = "".join(chr(i) for i in range(128, 256))
-        illegal_chars += non_ascii_chars
-
-        filename = "".join(
-            c if c not in illegal_chars else ""
-            for c in f"{story_title} by {story_author}.pdf"
-        )
-
-        filename = filename.replace(",", " and") if "," in f"{story_author}" else filename
-
-        # Remove double spaces
-        filename = " ".join(filename.split())
-
-
-        # Check if the PDF file already exists in the temporary directory
-
-        # Create the download folder in the temporary directory
-        temp_dir = os.path.join(os.environ["TEMP"], "GTSWorldDL")
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
-
-        # Set the output file path to the Downloads folder with the story ID as the filename
-        temp_output_filepath = os.path.join(temp_dir, filename)
-
-        # Check if the output file already exists and delete it if it does
-        if os.path.exists(temp_output_filepath):
-            os.remove(temp_output_filepath)
-
-        # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
-        pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
-
-        # The final destination path
-        downloads_filepath = os.path.join(downloads_dir, filename)
-
-        # Check if the file already exists in the destination directory
-        status = 0
-        if os.path.exists(downloads_filepath):
-            # Get the size of the existing file
-            existing_file_size = os.path.getsize(downloads_filepath)
             
-            # Get the size of the file to be moved
-            new_file_size = os.path.getsize(temp_output_filepath)
+    if DLMODE == 1:
+        # Prompt the user for the filename of the simulation data CSV
+        user_csv_filename = f"Link Export - M[{action}] - U[{uid}]"
 
-            # Set a threshold for considering the file sizes as significantly different
-            threshold_size_difference = 5 * 1024  # You can adjust this threshold based on your requirements
+        # Construct the CSV file path
+        script_directory = os.path.dirname(os.path.abspath(__file__))
+        csv_directory = os.path.join(script_directory, "CSV Link Exports")
 
-            # Compare file sizes and decide whether to overwrite or not
-            if new_file_size + threshold_size_difference < existing_file_size:
-                # print(f"The file '{filename}' already exists, and the new file is significantly smaller. It will not be overwritten.")
-                status = "Warning: Skipped!"
-                # Delete the new file in the temp directory
+        # Create the "CSV Link Exports" folder if it doesn't exist
+        if not os.path.exists(csv_directory):
+            os.makedirs(csv_directory)
+
+        csv_filepath = os.path.join(csv_directory, f"{user_csv_filename}.csv")
+
+        # Open the CSV file for writing
+        with open(csv_filepath, mode='w', newline='', encoding='utf-8') as csv_file:
+            csv_writer = csv.writer(csv_file)
+
+            # Write user/author page
+            csv_writer.writerow([f"https://www.[REDACTED].net/viewuser.php?action=favau&uid={uid}"])
+
+            # Loop through each story ID and save the printable version as a PDF
+            for i, story_id in enumerate(story_ids):
+                # Construct the URL of the printable version of the story
+                printable_url = f"https://www.[REDACTED].net/viewstory.php?action=printable&sid={story_id}&textsize=0&chapter=all"
+
+                # Write the printable URL to the CSV file
+                csv_writer.writerow([printable_url])
+            
+    if DLMODE == 0:
+        # Loop through each story ID and save the printable version as a PDF
+        for i, story_id in enumerate(story_ids):
+            # Construct the URL of the printable version of the story
+            printable_url = f"https://www.[REDACTED].net/viewstory.php?action=printable&sid={story_id}&textsize=0&chapter=all"
+
+            # Send a GET request to the printable URL with the cookies
+            response = make_request_with_retries(printable_url, cookies)
+            if response is None:
+                continue 
+
+            # Parse the HTML content of the response using BeautifulSoup
+            soup = BeautifulSoup(response.content, "html.parser")
+
+            # Extract the story title and author from the page title
+            page_title = soup.find("title").text.strip()
+            page_title_parts = page_title.split(" by ")
+            story_title = page_title_parts[0]
+            story_author = page_title_parts[1]
+
+            # Define illegal characters
+            illegal_chars = "#%&{}\\<>*?/$!'\"@+`|=:"
+
+            # Add non-ASCII characters to the list of illegal characters
+            non_ascii_chars = "".join(chr(i) for i in range(128, 256))
+            illegal_chars += non_ascii_chars
+
+            filename = "".join(
+                c if c not in illegal_chars else ""
+                for c in f"{story_title} by {story_author}.pdf"
+            )
+
+            filename = filename.replace(",", " and") if "," in f"{story_author}" else filename
+
+            # Remove double spaces
+            filename = " ".join(filename.split())
+
+
+            # Check if the PDF file already exists in the temporary directory
+
+            # Create the download folder in the temporary directory
+            temp_dir = os.path.join(os.environ["TEMP"], "GTSWorldDL")
+            if not os.path.exists(temp_dir):
+                os.makedirs(temp_dir)
+
+            # Set the output file path to the Downloads folder with the story ID as the filename
+            temp_output_filepath = os.path.join(temp_dir, filename)
+
+            # Check if the output file already exists and delete it if it does
+            if os.path.exists(temp_output_filepath):
                 os.remove(temp_output_filepath)
+
+            # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
+            pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
+
+            # The final destination path
+            downloads_filepath = os.path.join(downloads_dir, filename)
+
+            # Check if the file already exists in the destination directory
+            status = 0
+            if os.path.exists(downloads_filepath):
+                # Get the size of the existing file
+                existing_file_size = os.path.getsize(downloads_filepath)
+                
+                # Get the size of the file to be moved
+                new_file_size = os.path.getsize(temp_output_filepath)
+
+                # Set a threshold for considering the file sizes as significantly different
+                threshold_size_difference = 1 * 1024  # You can adjust this threshold based on your requirements
+
+                # Compare file sizes and decide whether to overwrite or not
+                if new_file_size + threshold_size_difference < existing_file_size:
+                    # print(f"The file '{filename}' already exists, and the new file is significantly smaller. It will not be overwritten.")
+                    status = "Warning: Skipped!"
+                    # Delete the new file in the temp directory
+                    os.remove(temp_output_filepath)
+                else:
+                    # Move the downloaded PDF file to the appropriate folder in the "Downloads" folder
+                    status = "Overwritten"
+                    shutil.move(temp_output_filepath, downloads_filepath)
             else:
                 # Move the downloaded PDF file to the appropriate folder in the "Downloads" folder
-                status = "Overwritten"
+                status = "New"
                 shutil.move(temp_output_filepath, downloads_filepath)
-        else:
-            # Move the downloaded PDF file to the appropriate folder in the "Downloads" folder
-            status = "New"
-            shutil.move(temp_output_filepath, downloads_filepath)
 
-        # Print a message indicating that the file has been saved
-        print(f"Processed {filename} ({i+1}/{len(story_ids)}) <{status}>")
+            # Print a message indicating that the file has been saved
+            print(f"Processed {filename} ({i+1}/{len(story_ids)}) <{status}>")
     
 path_wkhtmltopdf = r'.\wkhtmltopdf.exe'
 config = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
