@@ -6,6 +6,7 @@ import re
 import csv
 import datetime
 import unidecode
+import PyPDF2
 
 import requests
 from bs4 import BeautifulSoup
@@ -13,6 +14,12 @@ from requests.exceptions import ChunkedEncodingError
 import pdfkit
 
 DLMODE = 0 # 0 is Save to Disk / 1 is CSV Export
+
+path_wkhtmltopdf = r'.\wkhtmltopdf.exe'
+imageOptions={'no-images': None}
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
+}
 
 # Load the cookies from the Netscape HTTP Cookie File
 def parseCookieFile(cookiefile):
@@ -72,6 +79,27 @@ def uidToAuth(uid):
             return None  # Penname span not found
     else:
         return None  # Request was not successful
+    
+def extract_word_count(pdf_path, num_pages=5):
+    with open(pdf_path, 'rb') as pdf_file:
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+
+        # Extract text from the first 'num_pages' pages
+        text = ""
+        for page_num in range(min(num_pages, len(pdf_reader.pages))):
+            text += pdf_reader.pages[page_num].extract_text()
+
+        # Search for "Word count:" in the concatenated text
+        word_count_index = text.find("Word count:")
+        if word_count_index != -1:
+            word_count_str = text[word_count_index + len("Word count:"):].split()[0]
+            return int(word_count_str)
+        else:
+            return None
+        
+# Function to extract file size from a file
+def extract_file_size(filepath):
+    return os.path.getsize(filepath)
     
 def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
 
@@ -260,30 +288,47 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
             if os.path.exists(temp_output_filepath):
                 os.remove(temp_output_filepath)
 
-            # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
-            pdfkit.from_url(printable_url, temp_output_filepath, configuration=config)
+            try:
+                # Save the page as a PDF file with the appropriate filename using the browser's "Save as PDF" option
+                pdfkit.from_url(printable_url, temp_output_filepath)
+            except:
+                pdfkit.from_url(printable_url, temp_output_filepath, options=imageOptions)
 
             # The final destination path
             downloads_filepath = os.path.join(downloads_dir, filename)
 
+            # Rest of your code remains unchanged up to this point
+
             # Check if the file already exists in the destination directory
             status = 0
             if os.path.exists(downloads_filepath):
-                # Get the size of the existing file
-                existing_file_size = os.path.getsize(downloads_filepath)
-                
-                # Get the size of the file to be moved
-                new_file_size = os.path.getsize(temp_output_filepath)
+                # Get the word count of the existing file
+                existing_word_count = extract_word_count(downloads_filepath)
 
-                # Set a threshold for considering the file sizes as significantly different
-                threshold_size_difference = 5 * 1024  # You can adjust this threshold based on your requirements
+                # Get the word count of the file to be moved
+                new_word_count = extract_word_count(temp_output_filepath)
 
-                # Compare file sizes and decide whether to overwrite or not
-                if new_file_size + threshold_size_difference < existing_file_size:
-                    # print(f"The file '{filename}' already exists, and the new file is significantly smaller. It will not be overwritten.")
+                # Get the file size of the existing file
+                existing_file_size = extract_file_size(downloads_filepath)
+
+                # Get the file size of the file to be moved
+                new_file_size = extract_file_size(temp_output_filepath)
+
+                # Set thresholds for considering differences
+                threshold_word_difference = 200  # You can adjust this threshold based on your requirements
+                threshold_size_difference = 100 * 1024  # You can adjust this threshold based on your requirements
+
+                # Compare word counts and file sizes and decide whether to overwrite or not
+                if (
+                    new_word_count is not None 
+                    and new_word_count + threshold_word_difference < existing_word_count
+                    and new_file_size is not None
+                    and new_file_size + threshold_size_difference < existing_file_size
+                ):
+                    # File should not be overwritten
                     status = "Warning: Skipped!"
                     with open("log.txt", "a") as log_file:
-                        log_file.write(f"Skipped: {filename} - {datetime.datetime.now()} - Mode - {action}\n")
+                        log_file.write(f"Skipped: {filename}\n\tOld Word Count: {existing_word_count}\n\tNew Word Count: {new_word_count}\n\tOld Size: {round(existing_file_size/1024, 2)} KB\n\tNew Size: {round(new_file_size/1024, 2)} KB\n\tMode: {action}\n\tTimestamp: {datetime.datetime.now()}\n\n")
                     # Delete the new file in the temp directory
                     os.remove(temp_output_filepath)
                 else:
@@ -297,13 +342,8 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
 
             # Print a message indicating that the file has been saved
             print(f"Processed {filename} ({i+1}/{len(story_ids)}) <{status}>")
-    
-path_wkhtmltopdf = r'.\wkhtmltopdf.exe'
-config = pdfkit.configuration(wkhtmltopdf=path_wkhtmltopdf)
+
 cookies = parseCookieFile("cookies.txt")  # replace the filename
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
-}
 
 if len(sys.argv) == 1:
     # If no additional arguments are provided, ask for the download directory first
