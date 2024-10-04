@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from requests.exceptions import ChunkedEncodingError
 import pdfkit
 
-DLMODE = 0 # 0 is Save to Disk / 1 is CSV Export
+DLMODE = 1 # 0 is Save to Disk / 1 is CSV Export
 
 # Load the cookies from the Netscape HTTP Cookie File
 def parseCookieFile(cookiefile):
@@ -176,9 +176,7 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
     # print("Story IDs:")
     # print(story_ids)
             
-    if DLMODE == 1:
-        # Prompt the user for the filename of the simulation data CSV
-        user_csv_filename = f"Link Export - M[{action}] - U[{uid}]"
+    if DLMODE == 0:
 
         # Construct the CSV file path
         script_directory = os.path.dirname(os.path.abspath(__file__))
@@ -188,10 +186,11 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
         if not os.path.exists(csv_directory):
             os.makedirs(csv_directory)
 
-        csv_filepath = os.path.join(csv_directory, f"{user_csv_filename}.csv")
+        current_date = datetime.date.today()
+        csv_filepath = os.path.join(csv_directory, f"Story Link Exports [{current_date}].csv")
 
         # Open the CSV file for writing
-        with open(csv_filepath, mode='w', newline='', encoding='utf-8') as csv_file:
+        with open(csv_filepath, mode='a', newline='', encoding='utf-8') as csv_file:
             csv_writer = csv.writer(csv_file)
 
             # Write user/author page
@@ -204,7 +203,8 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
 
                 # Write the printable URL to the CSV file
                 csv_writer.writerow([printable_url])
-            
+
+                
     if DLMODE == 0:
         # Loop through each story ID and save the printable version as a PDF
         for i, story_id in enumerate(story_ids):
