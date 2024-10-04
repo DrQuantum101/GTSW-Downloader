@@ -5,13 +5,14 @@ import time
 import re
 import csv
 import datetime
+import unidecode
 
 import requests
 from bs4 import BeautifulSoup
 from requests.exceptions import ChunkedEncodingError
 import pdfkit
 
-DLMODE = 1 # 0 is Save to Disk / 1 is CSV Export
+DLMODE = 0 # 0 is Save to Disk / 1 is CSV Export
 
 # Load the cookies from the Netscape HTTP Cookie File
 def parseCookieFile(cookiefile):
@@ -231,16 +232,19 @@ def downloadStories(action=None, uid=None, storylist=None, downloads_dir=None):
             non_ascii_chars = "".join(chr(i) for i in range(128, 256))
             illegal_chars += non_ascii_chars
 
-            filename = "".join(
-                c if c not in illegal_chars else ""
-                for c in f"{story_title} by {story_author}.pdf"
-            )
+            # Function to remove diacritics and convert special characters
+            def clean_and_convert(text):
+                cleaned_text = unidecode.unidecode(text)
+                return "".join(c if c not in illegal_chars else "" for c in cleaned_text)
 
-            filename = filename.replace(",", " and") if "," in f"{story_author}" else filename
+            # Generate filename with cleaned and converted characters
+            filename = f"{clean_and_convert(story_title)} by {clean_and_convert(story_author)}.pdf"
+
+            # Replace comma with " and" if it exists in the author's name
+            filename = filename.replace(",", " and") if "," in story_author else filename
 
             # Remove double spaces
             filename = " ".join(filename.split())
-
 
             # Check if the PDF file already exists in the temporary directory
 
@@ -423,7 +427,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "--archiveAuth":
     else:
         mode = "individual"
 
-        if len(sys.argv) > 3:
+        if len(sys.argv) > 2:
             # If additional arguments are provided, append them starting from argv[2]
             author_ids.extend(sys.argv[2:])
         else:
@@ -485,7 +489,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "--archiveStories":
     else:
         mode = "individual"
 
-        if len(sys.argv) > 3:
+        if len(sys.argv) > 2:
             # If additional arguments are provided, append them starting from argv[2]
             story_ids.extend(sys.argv[2:])
         else:
