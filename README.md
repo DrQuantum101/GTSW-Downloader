@@ -33,19 +33,19 @@ This script currently uses rudimentary `argv` command-line argument options to m
 
 - `--favStories [user_id]`
   
-    Downloads favourite stories for the specified user ID. If no ID is provided, a default ID (12345) is used.
+    Downloads favourite stories for the specified user ID. If no ID is provided, a default ID (123456) is used.
   
     Example:
   
-       python GTSW-dl.py --favStories 12345
+       python GTSW-dl.py --favStories 123456
 
 - `--favAuth [user_id]`
   
-    Downloads stories from authors listed in the user's favorites. If no user ID is provided, a default ID (12345) is used.
+    Downloads stories from authors listed in the user's favorites. If no user ID is provided, a default ID (123456) is used.
     
     Example:
     
-       python GTSW-dl.py --favAuth 12345
+       python GTSW-dl.py --favAuth 123456
 
 - `--archiveAuth (--file [path] | individual user_ids)`
   
@@ -54,7 +54,7 @@ This script currently uses rudimentary `argv` command-line argument options to m
     Example:
     
        python GTSW-dl.py --archiveAuth --file authors.txt
-       python GTSW-dl.py --archiveAuth 12345 67890
+       python GTSW-dl.py --archiveAuth 123456 67890
 
 - `--archiveStories (--file [path] | individual story_ids)`
   
