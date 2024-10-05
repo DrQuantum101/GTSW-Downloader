@@ -390,7 +390,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "--favStories":
     if len(sys.argv) > 2:
         user = sys.argv[2]
     else:
-        user = 130611
+        user = 123456
     
     # Loop through the story links and download the PDFs
     downloads_dir = os.path.join(
@@ -416,7 +416,7 @@ if len(sys.argv) > 1 and sys.argv[1] == "--favAuth":
     if len(sys.argv) > 2:
         user = {sys.argv[2]}
     else:
-        user = 130611
+        user = 123456
 
     base_auth_url = f"https://www.[REDACTED].net/viewuser.php?action=favau&uid={user}&offset="
 
