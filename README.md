@@ -20,7 +20,7 @@ GTSW Downloader is a Python-based script designed to automate the process of dow
 1. Clone this repository
 
 2. Next, install the required packages with:
-   ```bash
+   ```
    pip install -r requirements.txt
    ```
 3.  Download and ensure `wkhtmltopdf.exe` is present in the script directory
@@ -70,9 +70,9 @@ This script currently uses rudimentary `argv` command-line argument options to m
 If no arguments are provided, the script will enter an interactive mode where users can input the some desired options, including the download directory, mode (`individual` or `file`), and IDs for authors or stories.
 
 Example:
-
-   `python GTSW-dl.py`
-
+   ```
+   python GTSW-dl.py
+   ```
 
 ### Logging
 
