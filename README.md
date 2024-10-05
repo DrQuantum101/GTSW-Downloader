@@ -1,4 +1,4 @@
-# GSUP-File-Downloader
+# GTSW-Downloader
 GTSW Downloader is a Python-based script designed to automate the process of downloading stories from a specific [REDACTED] website. I may expose the website in the future. It provides functionality for extracting stories, saving them in PDF format, and optionally exporting story links in CSV format. Users can utilize several command-line arguments to customize their download preferences.
 
 ## Features
